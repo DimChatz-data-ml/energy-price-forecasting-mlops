@@ -1,5 +1,10 @@
 .venv/
-__pycache__/
-*.log
-mlruns/
 .env
+__pycache__/
+mlruns/
+data/
+*.parquet
+models/
+.vscode/
+*.log
+.ipynb_checkpoints/
