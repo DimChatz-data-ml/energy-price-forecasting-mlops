@@ -32,7 +32,7 @@ DATA_DIR = os.environ["DATA_DIR"]
 # ==========================================
 
 def load_data():
-    logging.info(f"📂 Loading data from {DATA_DIR}...")
+    logging.info(f" Loading data from {DATA_DIR}...")
     return (
         pl.read_parquet(f"{DATA_DIR}/feature_matrix_train.parquet"),
         pl.read_parquet(f"{DATA_DIR}/feature_matrix_val.parquet"),
@@ -69,7 +69,7 @@ def evaluate(y_true, y_pred):
 
 def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_test):
     with mlflow.start_run(run_name=model_name):
-        logging.info(f"⚡ Training {model_name}...")
+        logging.info(f" Training {model_name}...")
 
         feature_names = list(X_train.columns)
         mlflow.log_params(model.get_params())
@@ -105,7 +105,7 @@ def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_t
         else:
             mlflow.xgboost.log_model(model, artifact_path="model")
 
-        logging.info(f"✅ {model_name} Metrics: RMSE={metrics['rmse']:.2f}, R2={metrics['r2']:.2f}")
+        logging.info(f" {model_name} Metrics: RMSE={metrics['rmse']:.2f}, R2={metrics['r2']:.2f}")
 
 # ==========================================
 # 🏁 MAIN
@@ -148,12 +148,12 @@ def main():
             try:
                 train_and_log(model, name, X_train, y_train, X_val, y_val, X_test, y_test)
             except Exception as e:
-                logging.error(f"❌ Failed training {name}: {e}")
+                logging.error(f"Failed training {name}: {e}")
 
-        logging.info("\n🚀 Pipeline finished! Check MLflow UI.")
+        logging.info("\nPipeline finished! Check MLflow UI.")
 
     except Exception as e:
-        logging.error(f"💥 Critical Error: {e}")
+        logging.error(f"Critical Error: {e}")
 
 if __name__ == "__main__":
     main()

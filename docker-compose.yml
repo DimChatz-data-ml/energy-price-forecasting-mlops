@@ -30,18 +30,17 @@ services:
     image: ghcr.io/mlflow/mlflow:latest
     container_name: mlops_mlflow
     restart: always
-    environment:
-      - MLFLOW_TRACKING_URI=postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "5000:5000"
     volumes:
-      - "C:/Users/USER/Desktop/A_Programming_Examples/Coding/energy-mlops/mlruns:/mlflow/artifacts"
+      - mlflow_artifacts:/mlflow/artifacts
     command: >
-      mlflow server 
-      --host 0.0.0.0 
-      --port 5000 
-      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB} 
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       --default-artifact-root /mlflow/artifacts
+      --serve-artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,7 +48,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:5000"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
 
   grafana:
     image: grafana/grafana:latest
@@ -67,3 +66,4 @@ services:
 volumes:
   pgdata:
   grafana_data:
+  mlflow_artifacts:
