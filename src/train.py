@@ -1,5 +1,5 @@
-# src/train.py
 import os
+import json
 import logging
 import polars as pl
 import pandas as pd
@@ -10,7 +10,6 @@ import numpy as np
 from dotenv import load_dotenv
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-# Fallback για παλιές εκδόσεις sklearn
 try:
     from sklearn.metrics import root_mean_squared_error
 except ImportError:
@@ -18,7 +17,7 @@ except ImportError:
         return np.sqrt(mean_squared_error(y_true, y_pred))
 
 # ==========================================
-# ⚙️ SETUP
+# SETUP
 # ==========================================
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
@@ -26,13 +25,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 MLFLOW_TRACKING_URI = os.environ["MLFLOW_TRACKING_URI"]
 EXPERIMENT_NAME = os.environ["EXPERIMENT_NAME"]
 DATA_DIR = os.environ["DATA_DIR"]
+MODEL_NAME = "energy_price_model"
 
 # ==========================================
-# 🛠️ HELPERS
+# HELPERS
 # ==========================================
 
 def load_data():
-    logging.info(f" Loading data from {DATA_DIR}...")
+    logging.info(f"Loading data from {DATA_DIR}...")
     return (
         pl.read_parquet(f"{DATA_DIR}/feature_matrix_train.parquet"),
         pl.read_parquet(f"{DATA_DIR}/feature_matrix_val.parquet"),
@@ -64,12 +64,12 @@ def evaluate(y_true, y_pred):
     return {"rmse": rmse, "mae": mae, "r2": r2, "mape": mape}
 
 # ==========================================
-# 🚀 TRAINING & LOGGING
+# TRAINING & LOGGING
 # ==========================================
 
 def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_test):
     with mlflow.start_run(run_name=model_name):
-        logging.info(f" Training {model_name}...")
+        logging.info(f"Training {model_name}...")
 
         feature_names = list(X_train.columns)
         mlflow.log_params(model.get_params())
@@ -97,18 +97,59 @@ def train_and_log(model, model_name, X_train, y_train, X_val, y_val, X_test, y_t
                 "feature": feature_names,
                 "importance": model.feature_importances_
             }).sort_values("importance", ascending=False)
-            import json
-            mlflow.log_dict(importance_df.head(20).to_dict(orient="records"), "feature_importance.json")
+            mlflow.log_dict(
+                importance_df.head(20).to_dict(orient="records"),
+                "feature_importance.json"
+            )
 
         if "lightgbm" in model_name.lower():
             mlflow.lightgbm.log_model(model, artifact_path="model")
         else:
             mlflow.xgboost.log_model(model, artifact_path="model")
 
-        logging.info(f" {model_name} Metrics: RMSE={metrics['rmse']:.2f}, R2={metrics['r2']:.2f}")
+        logging.info(f"{model_name} -> RMSE={metrics['rmse']:.2f}, R2={metrics['r2']:.2f}")
 
 # ==========================================
-# 🏁 MAIN
+# MODEL REGISTRY
+# ==========================================
+
+def register_best_model():
+    try:
+        runs = mlflow.search_runs(
+            experiment_names=[EXPERIMENT_NAME],
+            order_by=["metrics.test_rmse ASC"],
+            max_results=1
+        )
+        
+        if runs.empty:
+            logging.warning("No runs found for registration.")
+            return
+        
+        best_run_id = runs.iloc[0]["run_id"]
+        best_run_name = runs.iloc[0]["tags.mlflow.runName"]
+        best_rmse = runs.iloc[0]["metrics.test_rmse"]
+        
+        registered = mlflow.register_model(
+            f"runs:/{best_run_id}/model",
+            MODEL_NAME
+        )
+        
+        client = mlflow.MlflowClient()
+        client.set_registered_model_alias(
+            MODEL_NAME,
+            "champion",
+            registered.version
+        )
+        
+        logging.info(f"Model registered: {MODEL_NAME} v{registered.version}")
+        logging.info(f"Source: {best_run_name} | RMSE: {best_rmse:.2f}")
+        logging.info(f"Load with: mlflow.pyfunc.load_model('models:/{MODEL_NAME}@champion')")
+        
+    except Exception as e:
+        logging.warning(f"Could not register model: {e}", exc_info=True)
+
+# ==========================================
+# MAIN
 # ==========================================
 
 def main():
@@ -148,12 +189,14 @@ def main():
             try:
                 train_and_log(model, name, X_train, y_train, X_val, y_val, X_test, y_test)
             except Exception as e:
-                logging.error(f"Failed training {name}: {e}")
+                logging.error(f"Failed training {name}: {e}", exc_info=True)
 
-        logging.info("\nPipeline finished! Check MLflow UI.")
+        register_best_model()
+        
+        logging.info("Pipeline finished! Check MLflow UI.")
 
     except Exception as e:
-        logging.error(f"Critical Error: {e}")
+        logging.error(f"Critical Error: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()
