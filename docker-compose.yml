@@ -24,7 +24,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:latest
@@ -32,34 +33,57 @@ services:
     restart: always
     ports:
       - "5000:5000"
+    environment:
+      - MLFLOW_SERVER_ALLOWED_HOSTS=*
     volumes:
       - mlflow_artifacts:/mlflow/artifacts
-    command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      --default-artifact-root /mlflow/artifacts
-      --serve-artifacts
+    entrypoint: >
+      sh -c "pip install psycopg2-binary -q && 
+      mlflow server 
+      --host 0.0.0.0 
+      --port 5000 
+      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB} 
+      --default-artifact-root /mlflow/artifacts 
+      --serve-artifacts"
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   grafana:
     image: grafana/grafana:latest
     container_name: mlops_grafana
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
     ports:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
     depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: mlops_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    depends_on:
+      mlflow:
+        condition: service_healthy
       postgres:
         condition: service_healthy
 
